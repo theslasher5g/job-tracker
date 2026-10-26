@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IT Job Tracker Schweiz</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>IT Job Tracker <span class="flag">🇨🇭</span></h1>
+    <p class="sub">System Engineer · Plattform · DevOps · Linux — Schweiz &amp; Remote</p>
+  </div>
+  <div class="actions">
+    <button id="btnAdd" class="btn primary">+ Stelle hinzufügen</button>
+    <button id="btnExport" class="btn">Export</button>
+    <label class="btn">Import<input id="fileImport" type="file" accept="application/json" hidden></label>
+  </div>
+</header>
+
+<section class="stats" id="stats"></section>
+
+<section class="filters">
+  <input id="q" type="search" placeholder="Suche: Titel, Firma, Stadt …">
+  <select id="fLevel"><option value="">Alle Level</option><option>Junior</option><option>Mid</option><option>Senior</option></select>
+  <select id="fMode"><option value="">Vor Ort / Remote</option><option value="onsite">Vor Ort</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option></select>
+  <select id="fWhere"><option value="">Schweiz + Ausland</option><option value="CH">Nur Schweiz</option><option value="ABROAD">Nur Ausland (Remote)</option></select>
+  <select id="fStatus"><option value="">Alle Status</option></select>
+  <div class="chips" id="catChips"></div>
+  <button id="btnReset" class="btn small">Filter zurücksetzen</button>
+</section>
+
+<main class="grid">
+  <section class="card mapcard">
+    <div class="cardhead">
+      <h2>Karte</h2>
+      <div><button class="btn small" id="zoomCH">Schweiz</button> <button class="btn small" id="zoomEU">Europa</button></div>
+    </div>
+    <div id="map" role="application" aria-label="Karte der Stellen"></div>
+    <p class="hint">Kreis anklicken = Stellen dieser Stadt filtern. Grösse = Anzahl Stellen.</p>
+  </section>
+
+  <section class="card">
+    <div class="cardhead"><h2>Stellen pro Stadt</h2><span class="hint">Balken anklicken</span></div>
+    <div class="chartbox"><canvas id="chCity"></canvas></div>
+    <div class="cardhead"><h2>Nach Bereich</h2><span class="hint">Segment anklicken</span></div>
+    <div class="chartbox small"><canvas id="chCat"></canvas></div>
+  </section>
+</main>
+
+<section class="card listcard">
+  <div class="cardhead"><h2 id="listTitle">Stellen</h2><span id="activeFilter" class="hint"></span></div>
+  <div id="list" class="list"></div>
+</section>
+
+<footer>
+  <p>Die Stellen sind <strong>Beispieldaten</strong>. „Suchen“ öffnet die Live-Suche auf jobs.ch; eigene Stellen &amp; Status werden lokal in deinem Browser gespeichert.
+  Weitere Quellen: <a target="_blank" rel="noopener" href="https://www.jobs.ch/de/stellenangebote/?term=devops">jobs.ch</a> ·
+  <a target="_blank" rel="noopener" href="https://www.jobscout24.ch/de/jobs/?q=linux">JobScout24</a> ·
+  <a target="_blank" rel="noopener" href="https://www.linkedin.com/jobs/search/?keywords=devops&location=Schweiz">LinkedIn</a> ·
+  <a target="_blank" rel="noopener" href="https://ch.indeed.com/jobs?q=platform+engineer">Indeed</a></p>
+</footer>
+
+<dialog id="dlg">
+  <form method="dialog" id="addForm">
+    <h2>Stelle hinzufügen</h2>
+    <label>Titel<input name="title" required></label>
+    <label>Firma<input name="company" required></label>
+    <label>Stadt<select name="city" id="addCity"></select></label>
+    <label>Bereich<select name="cat"><option>DevOps</option><option>Linux</option><option>Plattform</option><option>SysEng</option></select></label>
+    <label>Level<select name="level"><option>Junior</option><option selected>Mid</option><option>Senior</option></select></label>
+    <label>Modus<select name="mode"><option value="onsite">Vor Ort</option><option value="hybrid" selected>Hybrid</option><option value="remote">Remote</option></select></label>
+    <label>Gehalt (optional)<input name="salary" placeholder="z.B. 95–110k"></label>
+    <label>Link zum Inserat (optional)<input name="url" type="url" placeholder="https://…"></label>
+    <div class="row"><button value="cancel" class="btn" formnovalidate>Abbrechen</button><button value="ok" class="btn primary">Speichern</button></div>
+  </form>
+</dialog>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/chart.umd.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

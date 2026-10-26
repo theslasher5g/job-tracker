@@ -1,0 +1,52 @@
+:root{
+  --bg:#f5f6f8;--card:#fff;--text:#1a1d23;--muted:#5f6877;--line:#e2e5ea;
+  --accent:#d52b1e;--accent-ink:#fff;--c1:#d52b1e;--c2:#2b6cb0;--c3:#2f9e6f;--c4:#d98a1f;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#12141a;--card:#1b1f27;--text:#e9ecf1;--muted:#98a2b3;--line:#2c323d;--accent:#ef5547;--c1:#ef5547;--c2:#5aa2e8;--c3:#4cc795;--c4:#f0a94a}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:0 16px 32px;max-width:1280px;margin-inline:auto}
+h1{margin:0;font-size:1.6rem}h2{margin:0;font-size:1.05rem}
+.top{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;padding:20px 0 12px}
+.sub{margin:2px 0 0;color:var(--muted)}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer;display:inline-block}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.small{padding:3px 10px;font-size:.85rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:12px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.stat b{display:block;font-size:1.5rem}.stat span{color:var(--muted);font-size:.85rem}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
+input,select{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit}
+#q{flex:1 1 220px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:4px 12px;cursor:pointer;font:inherit;font-size:.9rem}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.grid{display:grid;grid-template-columns:3fr 2fr;gap:12px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.cardhead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.hint{color:var(--muted);font-size:.82rem;margin:6px 0 0}.cardhead .hint{margin:0}
+#map{height:480px;border-radius:8px;border:1px solid var(--line);background:#cfd8e3}
+.chartbox{position:relative;height:380px;margin-bottom:12px}.chartbox.small{height:220px;margin:0}
+.list{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.job{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.job h3{margin:0;font-size:1rem}.job .meta{color:var(--muted);font-size:.88rem}
+.tags{display:flex;gap:6px;flex-wrap:wrap}
+.tag{font-size:.75rem;border-radius:6px;padding:1px 8px;border:1px solid var(--line);color:var(--muted)}
+.tag.remote{color:var(--c3);border-color:var(--c3)}.tag.Junior{color:var(--c2);border-color:var(--c2)}
+.jobfoot{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:auto}
+.jobfoot select{padding:4px 6px;font-size:.85rem}
+.jobfoot a{color:var(--accent);text-decoration:none;font-size:.9rem}
+.job.st-applied{border-left:4px solid var(--c2)}.job.st-interview{border-left:4px solid var(--c4)}
+.job.st-offer{border-left:4px solid var(--c3)}.job.st-rejected{opacity:.55}.job.st-saved{border-left:4px solid var(--muted)}
+.empty{color:var(--muted);padding:20px;text-align:center;grid-column:1/-1}
+footer{color:var(--muted);font-size:.85rem;margin-top:16px}footer a{color:var(--accent)}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--text);width:min(440px,92vw)}
+dialog::backdrop{background:#0008}
+dialog form{display:grid;gap:10px}dialog label{display:grid;gap:3px;font-size:.88rem;color:var(--muted)}
+dialog .row{display:flex;gap:8px;justify-content:flex-end}
+.leaflet-popup-content{font:13px/1.4 system-ui,sans-serif;color:#1a1d23}
+.leaflet-popup-content ul{margin:4px 0 0;padding-left:16px}
+@media(max-width:860px){.grid{grid-template-columns:1fr}#map{height:380px}}
