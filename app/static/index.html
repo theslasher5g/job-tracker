@@ -15,10 +15,12 @@
   </div>
   <div class="actions">
     <button id="btnAdd" class="btn primary">+ Stelle hinzufügen</button>
+    <button id="btnRefresh" class="btn">↻ Jetzt aktualisieren</button>
     <button id="btnExport" class="btn">Export</button>
-    <label class="btn">Import<input id="fileImport" type="file" accept="application/json" hidden></label>
   </div>
 </header>
+
+<p id="meta" class="hint metaline"></p>
 
 <section class="stats" id="stats"></section>
 
@@ -56,8 +58,9 @@
 </section>
 
 <footer>
-  <p>Die Stellen sind <strong>Beispieldaten</strong>. „Suchen“ öffnet die Live-Suche auf jobs.ch; eigene Stellen &amp; Status werden lokal in deinem Browser gespeichert.
-  Weitere Quellen: <a target="_blank" rel="noopener" href="https://www.jobs.ch/de/stellenangebote/?term=devops">jobs.ch</a> ·
+  <p>Stellen kommen automatisch von swissdevjobs.ch, arbeitnow.com und remotive.com und werden in der lokalen Datenbank gespeichert.
+  Status und eigene Stellen bleiben erhalten. Weitere Suche:
+  <a target="_blank" rel="noopener" href="https://www.jobs.ch/de/stellenangebote/?term=devops">jobs.ch</a> ·
   <a target="_blank" rel="noopener" href="https://www.jobscout24.ch/de/jobs/?q=linux">JobScout24</a> ·
   <a target="_blank" rel="noopener" href="https://www.linkedin.com/jobs/search/?keywords=devops&location=Schweiz">LinkedIn</a> ·
   <a target="_blank" rel="noopener" href="https://ch.indeed.com/jobs?q=platform+engineer">Indeed</a></p>
@@ -80,7 +83,6 @@
 
 <script src="vendor/leaflet.js"></script>
 <script src="vendor/chart.umd.js"></script>
-<script src="data.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

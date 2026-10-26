@@ -2,19 +2,21 @@ const STATUS = { "": "Neu", saved: "Gemerkt", applied: "Beworben", interview: "I
 const CATS = ["DevOps", "Linux", "Plattform", "SysEng"];
 const CAT_LABEL = { DevOps: "DevOps", Linux: "Linux", Plattform: "Plattform", SysEng: "System Engineer" };
 const MODE_LABEL = { onsite: "Vor Ort", hybrid: "Hybrid", remote: "Remote" };
-const LS_STATUS = "jt.status", LS_CUSTOM = "jt.custom";
 
-const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
-const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
-
-let statusMap = load(LS_STATUS, {});
-let custom = load(LS_CUSTOM, []);
+let jobs = [], meta = {};
+const CITIES = {};
+const api = async (path, method = "GET", body) => {
+  const r = await fetch("/api" + path, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body && JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+};
 const f = { q: "", level: "", mode: "", where: "", status: "", cat: "", city: "" };
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const allJobs = () => [...JOBS, ...custom];
-const statusOf = j => statusMap[j.id] || "";
+const allJobs = () => jobs;
+const statusOf = j => j.status || "";
 const searchUrl = j => j.url || `https://www.jobs.ch/de/stellenangebote/?term=${encodeURIComponent(j.title)}&location=${encodeURIComponent(j.city)}`;
 
 function filtered(skip) {
@@ -117,13 +119,13 @@ function drawList(jobs) {
     const st = statusOf(j), c = CITIES[j.city];
     return `<article class="job st-${st}">
       <h3>${esc(j.title)}</h3>
-      <div class="meta">${esc(j.company)} · ${esc(j.city)}${c.country !== "CH" ? " (" + c.country + ")" : ""}${j.salary ? " · " + esc(j.salary) : ""}</div>
+      <div class="meta">${esc(j.company)} · ${esc(j.city)}${c.country !== "CH" ? " (" + c.country + ")" : ""}${j.salary ? " · " + esc(j.salary) : ""}<br>${j.date ? esc(j.date) + " · " : ""}${esc(j.source)}</div>
       <div class="tags"><span class="tag ${j.level}">${j.level}</span><span class="tag ${j.mode}">${MODE_LABEL[j.mode]}</span><span class="tag">${CAT_LABEL[j.cat]}</span></div>
       <div class="jobfoot">
         <select data-id="${j.id}" aria-label="Status">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}"${k === st ? " selected" : ""}>${v}</option>`).join("")}</select>
         <span>${j.custom ? `<button class="btn small" data-del="${j.id}">Löschen</button> ` : ""}<a href="${esc(searchUrl(j))}" target="_blank" rel="noopener">${j.url ? "Inserat" : "Suchen"} ↗</a></span>
       </div></article>`;
-  }).join("") : `<p class="empty">Keine Stellen für diese Filter.</p>`;
+  }).join("") : `<p class="empty">${jobs.length ? "Keine Stellen für diese Filter." : meta.running ? "Erster Abruf läuft … (dauert ca. 1 Minute)" : "Noch keine Stellen. Klicke auf „Jetzt aktualisieren“."}</p>`;
 }
 
 function render() {
@@ -143,38 +145,54 @@ $("btnReset").onclick = () => {
   ["q", "fLevel", "fMode", "fWhere", "fStatus"].forEach(id => $(id).value = "");
   render();
 };
-$("list").addEventListener("change", e => {
-  if (!e.target.dataset.id) return;
+$("list").addEventListener("change", async e => {
   const id = e.target.dataset.id;
-  if (e.target.value) statusMap[id] = e.target.value; else delete statusMap[id];
-  save(LS_STATUS, statusMap); render();
+  if (!id) return;
+  try { await api(`/jobs/${id}/status`, "PUT", { status: e.target.value }); } catch (err) { alert(err.message); }
+  await load();
 });
-$("list").addEventListener("click", e => {
+$("list").addEventListener("click", async e => {
   const id = e.target.dataset.del;
   if (!id || !confirm("Stelle löschen?")) return;
-  custom = custom.filter(j => String(j.id) !== id); save(LS_CUSTOM, custom); render();
+  try { await api(`/jobs/${id}`, "DELETE"); } catch (err) { alert(err.message); }
+  await load();
 });
 
-$("addCity").innerHTML = Object.entries(CITIES).map(([n, c]) => `<option value="${n}">${n} (${c.country})</option>`).join("");
+api("/places").then(p => {
+  $("addCity").innerHTML = p.map(c => `<option value="${esc(c.name)}">${esc(c.name)} (${c.country})</option>`).join("");
+});
 $("btnAdd").onclick = () => $("dlg").showModal();
-$("addForm").addEventListener("submit", e => {
+$("addForm").addEventListener("submit", async e => {
   if (e.submitter?.value !== "ok") return;
-  const d = Object.fromEntries(new FormData(e.target));
-  custom.push({ ...d, id: "c" + Date.now(), custom: true, date: new Date().toISOString().slice(0, 10) });
-  save(LS_CUSTOM, custom); e.target.reset(); render();
+  try { await api("/jobs", "POST", Object.fromEntries(new FormData(e.target))); e.target.reset(); await load(); }
+  catch (err) { alert(err.message); }
 });
 
 $("btnExport").onclick = () => {
-  const blob = new Blob([JSON.stringify({ status: statusMap, custom }, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify(jobs, null, 2)], { type: "application/json" });
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "job-tracker.json" });
   a.click(); URL.revokeObjectURL(a.href);
 };
-$("fileImport").onchange = async e => {
-  try {
-    const d = JSON.parse(await e.target.files[0].text());
-    statusMap = d.status || {}; custom = d.custom || [];
-    save(LS_STATUS, statusMap); save(LS_CUSTOM, custom); render();
-  } catch { alert("Ungültige Datei."); }
+
+let poll;
+$("btnRefresh").onclick = async () => {
+  await api("/refresh", "POST").catch(() => {});
+  meta.running = true; drawMeta();
+  clearInterval(poll);
+  poll = setInterval(async () => { await load(); if (!meta.running) clearInterval(poll); }, 3000);
 };
 
-render();
+function drawMeta() {
+  const src = Object.entries(meta.sources || {}).map(([n, s]) => `${n}: ${s.jobs}${s.error ? " ⚠" : ""}`).join(" · ");
+  $("btnRefresh").disabled = !!meta.running;
+  $("meta").textContent = meta.running ? "Aktualisiere Stellen …"
+    : meta.at ? `Zuletzt aktualisiert: ${new Date(meta.at).toLocaleString("de-CH")} — ${src}` : "";
+}
+
+async function load() {
+  const d = await api("/jobs");
+  jobs = d.jobs; meta = d.meta;
+  jobs.forEach(j => CITIES[j.city] = { lat: j.lat, lng: j.lng, country: j.country });
+  drawMeta(); render();
+}
+load().then(() => { if (meta.running || !jobs.length) $("btnRefresh").onclick(); });

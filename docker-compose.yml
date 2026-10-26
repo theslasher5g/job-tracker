@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: jobs
+      POSTGRES_PASSWORD: jobs
+      POSTGRES_DB: jobs
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobs -d jobs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://jobs:jobs@db:5432/jobs
+      REFRESH_HOURS: "6"   # wie oft neue Stellen geholt werden
+    ports:
+      - "127.0.0.1:8080:8080"   # nur von diesem PC aus erreichbar (keine Anmeldung eingebaut)
+    restart: unless-stopped
+
+volumes:
+  pgdata:
