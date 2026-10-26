@@ -4,13 +4,16 @@
 Quellen (alle ohne API-Key):
   - swissdevjobs.ch  (Schweiz)
   - arbeitnow.com    (DACH, nur Remote-Stellen im Ausland + Schweiz)
-  - remotive.com     (Remote, nur Europa/Worldwide)
+  - remotive.com, remoteok.com, jobicy.com, weworkremotely.com, himalayas.app  (Remote, nur Europa/Worldwide)
+  - adzuna.com       (Schweiz, nur wenn ADZUNA_APP_ID und ADZUNA_APP_KEY gesetzt sind; kostenloser Key)
 
 Nur Python-Standardbibliothek. `python3 -m app.fetcher` führt einen Offline-Selbsttest der
 Normalisierung aus.
 """
-import hashlib, json, re, sys, time
+import hashlib, json, os, re, sys, time
 import urllib.request, urllib.parse
+import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone, timedelta
 
 MAX_AGE_DAYS = 45
@@ -58,8 +61,10 @@ COUNTRY_PLACES = {
 EUROPE_TOKENS = [
     "europe", "emea", "worldwide", "anywhere", "global", "switzerland", "germany", "austria", "netherlands",
     "ireland", "portugal", "spain", "france", "united kingdom", "uk", "italy", "poland", "czech", "sweden",
-    "denmark", "belgium", "dach", "eu", "european",
+    "denmark", "belgium", "dach", "eu", "european", "world",
 ]
+
+COUNTRY_NAMES = {"CH": ["switzerland", "schweiz", "suisse"], "DE": ["germany", "deutschland"], "AT": ["austria", "österreich"]}
 
 RELEVANT = re.compile(
     r"devops|\bsre\b|site reliability|platform|plattform|linux|system ?engineer|systems? ?engineer|"
@@ -69,17 +74,21 @@ NOT_RELEVANT = re.compile(r"sales|account manager|recruit|marketing|designer|dat
                           r"\bpm\b|product manager|customer success", re.I)
 
 
-def get_json(url, tries=3):
+def get_text(url, tries=3):
     last = None
     for i in range(tries):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
+            req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json, application/xml, */*"})
             with urllib.request.urlopen(req, timeout=40) as r:
-                return json.load(r)
+                return r.read().decode("utf-8", "replace")
         except Exception as e:  # noqa: BLE001 - jede Quelle darf einzeln scheitern
             last = e
             time.sleep(2 * (i + 1))
     raise last
+
+
+def as_json(fn):
+    return lambda raw: fn(json.loads(raw))
 
 
 def clean(s):
@@ -127,9 +136,12 @@ def parse_date(v):
     try:
         if isinstance(v, (int, float)):
             return datetime.fromtimestamp(v / 1000 if v > 1e11 else v, timezone.utc)
-        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        try:
+            d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        except ValueError:
+            d = parsedate_to_datetime(str(v))
         return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
-    except ValueError:
+    except (ValueError, TypeError):
         return None
 
 
@@ -182,27 +194,106 @@ def from_arbeitnow(data):
     return [x for x in out if x]
 
 
+def europe_ok(where):
+    """Remote-Stelle ist aus der Schweiz/Europa bewerbbar? Leer = weltweit."""
+    where = clean(where).lower()
+    if not where:
+        return True
+    if re.search(r"\b(usa|us|u\.s\.|canada|north america|latam|india|apac|asia|africa)\b only|^(usa|united states|canada|india)$", where):
+        return False
+    return any(re.search(rf"\b{re.escape(t)}\b", where) for t in EUROPE_TOKENS)
+
+
+def remote_job(source, title, company, where, url, salary, date):
+    if not europe_ok(where):
+        return None
+    w = clean(where).lower()
+    code = next((c for c, names in COUNTRY_NAMES.items() if any(re.search(rf"\b{n}\b", w) for n in names)), None)
+    loc = place(where) or COUNTRY_PLACES.get(code) or COUNTRY_PLACES["EU"]
+    return make(source, title, company, loc, url, "remote", salary, date)
+
+
+def money(lo, hi, cur=""):
+    return f"{round(lo/1000)}–{round(hi/1000)}k {cur}".strip() if lo and hi else ""
+
+
 def from_remotive(data):
+    out = [remote_job("remotive.com", j.get("title"), j.get("company_name"), j.get("candidate_required_location"),
+                      j.get("url"), clean(j.get("salary")), parse_date(j.get("publication_date")))
+           for j in data.get("jobs", [])]
+    return [x for x in out if x]
+
+
+def from_remoteok(data):
+    out = [remote_job("remoteok.com", j.get("position"), j.get("company"), j.get("location"), j.get("url"),
+                      money(j.get("salary_min"), j.get("salary_max"), "USD"), parse_date(j.get("date")))
+           for j in data if isinstance(j, dict) and j.get("position")]
+    return [x for x in out if x]
+
+
+def from_jobicy(data):
     out = []
     for j in data.get("jobs", []):
-        where = clean(j.get("candidate_required_location")).lower()
-        if where and not any(re.search(rf"\b{re.escape(t)}\b", where) for t in EUROPE_TOKENS):
-            continue
-        if re.search(r"\b(usa|us|u\.s\.|canada|north america|latam|india|apac)\b only|^(usa|canada|india)$", where):
-            continue
-        loc = place(where) or COUNTRY_PLACES["EU"]
-        out.append(make("remotive.com", j.get("title"), j.get("company_name"), loc, j.get("url"),
-                        "remote", clean(j.get("salary")), parse_date(j.get("publication_date"))))
+        geo = j.get("jobGeo")
+        geo = ", ".join(geo) if isinstance(geo, list) else geo
+        out.append(remote_job("jobicy.com", j.get("jobTitle"), j.get("companyName"), geo, j.get("url"),
+                              money(j.get("annualSalaryMin"), j.get("annualSalaryMax"), j.get("salaryCurrency") or ""),
+                              parse_date(j.get("pubDate"))))
+    return [x for x in out if x]
+
+
+def from_wwr(raw):
+    out = []
+    for it in ET.fromstring(raw).iter("item"):
+        t = clean(it.findtext("title"))
+        company, _, title = t.partition(": ")
+        if not title:
+            company, title = "", t
+        out.append(remote_job("weworkremotely.com", title, company, it.findtext("region"), clean(it.findtext("link")),
+                              "", parse_date(it.findtext("pubDate"))))
+    return [x for x in out if x]
+
+
+def from_himalayas(data):
+    out = []
+    for j in data.get("jobs", []):
+        where = ", ".join(j.get("locationRestrictions") or [])
+        out.append(remote_job("himalayas.app", j.get("title"), j.get("companyName"), where,
+                              j.get("applicationLink") or j.get("guid"),
+                              money(j.get("minSalary"), j.get("maxSalary"), j.get("currency") or ""),
+                              parse_date(j.get("pubDate"))))
+    return [x for x in out if x]
+
+
+def from_adzuna(data):
+    out = []
+    for j in data.get("results", []):
+        area = (j.get("location") or {}).get("area") or []
+        loc = place(", ".join(reversed(area))) or place((j.get("location") or {}).get("display_name")) or COUNTRY_PLACES["CH"]
+        out.append(make("adzuna.com", j.get("title"), (j.get("company") or {}).get("display_name"), loc,
+                        j.get("redirect_url"), "onsite", money(j.get("salary_min"), j.get("salary_max"), "CHF"),
+                        parse_date(j.get("created"))))
     return [x for x in out if x]
 
 
 SOURCES = [
-    ("swissdevjobs.ch", ["https://swissdevjobs.ch/api/jobsLight"], from_swissdevjobs),
-    ("arbeitnow.com", [f"https://www.arbeitnow.com/api/job-board-api?page={p}" for p in (1, 2, 3)], from_arbeitnow),
-    ("remotive.com", [f"https://remotive.com/api/remote-jobs?category=devops&limit=100",
+    ("swissdevjobs.ch", ["https://swissdevjobs.ch/api/jobsLight"], as_json(from_swissdevjobs)),
+    ("arbeitnow.com", [f"https://www.arbeitnow.com/api/job-board-api?page={p}" for p in (1, 2, 3)], as_json(from_arbeitnow)),
+    ("remotive.com", ["https://remotive.com/api/remote-jobs?category=devops&limit=100",
                       "https://remotive.com/api/remote-jobs?search=linux&limit=100",
-                      "https://remotive.com/api/remote-jobs?search=platform%20engineer&limit=100"], from_remotive),
+                      "https://remotive.com/api/remote-jobs?search=platform%20engineer&limit=100"], as_json(from_remotive)),
+    ("remoteok.com", ["https://remoteok.com/api"], as_json(from_remoteok)),
+    ("jobicy.com", [f"https://jobicy.com/api/v2/remote-jobs?count=50&geo={g}&tag={t}"
+                    for g in ("europe", "switzerland") for t in ("devops", "linux")], as_json(from_jobicy)),
+    ("weworkremotely.com", ["https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss"], from_wwr),
+    ("himalayas.app", ["https://himalayas.app/jobs/api?limit=100"], as_json(from_himalayas)),
 ]
+if os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY"):
+    _q = urllib.parse.urlencode({"app_id": os.environ["ADZUNA_APP_ID"], "app_key": os.environ["ADZUNA_APP_KEY"],
+                                 "results_per_page": 50, "max_days_old": MAX_AGE_DAYS})
+    SOURCES.append(("adzuna.com", [f"https://api.adzuna.com/v1/api/jobs/ch/search/1?{_q}&what={urllib.parse.quote(w)}"
+                                   for w in ("devops", "linux", "platform engineer", "system engineer", "site reliability")],
+                    as_json(from_adzuna)))
 
 
 def fetch_all():
@@ -212,12 +303,18 @@ def fetch_all():
         n, err = 0, None
         for u in urls:
             try:
-                for job in fn(get_json(u)):
+                for job in fn(get_text(u)):
                     jobs.setdefault(job["id"], job); n += 1
             except Exception as e:  # noqa: BLE001
                 err = f"{type(e).__name__}: {e}"
                 print(f"[{name}] {u} -> {err}", file=sys.stderr)
         report[name] = {"jobs": n, **({"error": err} if err else {})}
+    seen, unique = set(), []
+    for j in jobs.values():  # gleiche Stelle bei mehreren Quellen nur einmal (erste Quelle gewinnt)
+        k = (j["title"].lower(), j["company"].lower())
+        if k not in seen:
+            seen.add(k); unique.append(j)
+    jobs = {j["id"]: j for j in unique}
     cutoff = (datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)).date().isoformat()
     final = sorted((j for j in jobs.values() if not j["date"] or j["date"] >= cutoff),
                    key=lambda j: j["date"], reverse=True)[:MAX_JOBS]
@@ -242,6 +339,23 @@ def selftest():
     assert sdj[0]["salary"] == "90–105k CHF", sdj
     assert len(an) == 1 and an[0]["city"] == "Berlin" and an[0]["cat"] == "Plattform", an
     assert len(rm) == 1 and rm[0]["level"] == "Senior" and rm[0]["country"] == "EU", rm
+    ro = from_remoteok([{"legal": "x"}, {"position": "Linux Systems Engineer", "company": "Z", "location": "Worldwide",
+                         "url": "https://remoteok.com/z", "date": now, "salary_min": 80000, "salary_max": 100000},
+                        {"position": "DevOps Engineer", "company": "Y", "location": "United States", "url": "https://remoteok.com/y"}])
+    jo = from_jobicy({"jobs": [{"jobTitle": "Junior DevOps Engineer", "companyName": "J", "jobGeo": "Switzerland",
+                                "url": "https://jobicy.com/j", "pubDate": "2026-10-20 10:00:00"}]})
+    ww = from_wwr("<rss><channel><item><title>Acme: Senior Platform Engineer</title><region>Anywhere in the World</region>"
+                  "<link>https://wwr/1</link><pubDate>Mon, 20 Oct 2026 10:00:00 +0000</pubDate></item></channel></rss>")
+    hi = from_himalayas({"jobs": [{"title": "SRE", "companyName": "H", "locationRestrictions": ["Germany"],
+                                   "applicationLink": "https://himalayas.app/h", "pubDate": int(time.time())}]})
+    az = from_adzuna({"results": [{"title": "Linux Engineer", "company": {"display_name": "Ad"}, "redirect_url": "https://adz/1",
+                                   "location": {"display_name": "Basel", "area": ["Switzerland", "Basel-Stadt", "Basel"]},
+                                   "created": now, "salary_min": 90000, "salary_max": 110000}]})
+    assert len(ro) == 1 and ro[0]["salary"] == "80–100k USD", ro
+    assert len(jo) == 1 and jo[0]["level"] == "Junior" and jo[0]["date"] == "2026-10-20", jo
+    assert len(ww) == 1 and ww[0]["company"] == "Acme" and ww[0]["level"] == "Senior" and ww[0]["date"] == "2026-10-20", ww
+    assert len(hi) == 1 and hi[0]["city"].startswith("Deutschland"), hi
+    assert len(az) == 1 and az[0]["city"] == "Basel" and az[0]["country"] == "CH", az
     print("selftest ok")
 
 

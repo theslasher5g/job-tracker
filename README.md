@@ -23,4 +23,15 @@ Dann `http://localhost:8080` öffnen. Der erste Abruf startet automatisch (ca. 1
 
 ## Quellen
 
-swissdevjobs.ch, arbeitnow.com, remotive.com (öffentliche APIs, ohne Key). Neue Quellen: Funktion in `app/fetcher.py` ergänzen und in `SOURCES` eintragen. Offline-Test der Normalisierung: `python3 -m app.fetcher`.
+Ohne Key: swissdevjobs.ch, arbeitnow.com, remotive.com, remoteok.com, jobicy.com, weworkremotely.com, himalayas.app (Remote-Quellen nur Europa/weltweit). Doppelte Stellen aus mehreren Quellen werden zusammengefasst.
+
+Optional **Adzuna** (breiteste Schweizer Abdeckung): kostenlosen Key auf developer.adzuna.com holen und in eine Datei `.env` neben `docker-compose.yml` schreiben:
+
+```
+ADZUNA_APP_ID=...
+ADZUNA_APP_KEY=...
+```
+
+Danach `docker compose up -d`. Pro Quelle zeigt die Seite oben die Anzahl Stellen (⚠ = Abruf fehlgeschlagen, Details in `docker compose logs app`).
+
+Neue Quelle: Funktion in `app/fetcher.py` ergänzen und in `SOURCES` eintragen. Offline-Test der Normalisierung: `python3 -m app.fetcher`.

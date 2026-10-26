@@ -22,6 +22,10 @@ services:
     environment:
       DATABASE_URL: postgresql://jobs:jobs@db:5432/jobs
       REFRESH_HOURS: "6"   # wie oft neue Stellen geholt werden
+      # Optional: kostenloser Key von https://developer.adzuna.com -> viele zusätzliche Schweizer Stellen.
+      # Eintragen in eine Datei .env neben docker-compose.yml: ADZUNA_APP_ID=... und ADZUNA_APP_KEY=...
+      ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
+      ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
     ports:
       - "127.0.0.1:8080:8080"   # nur von diesem PC aus erreichbar (keine Anmeldung eingebaut)
     restart: unless-stopped
