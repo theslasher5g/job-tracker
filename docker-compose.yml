@@ -22,6 +22,7 @@ services:
     environment:
       DATABASE_URL: postgresql://jobs:jobs@db:5432/jobs
       REFRESH_HOURS: "6"   # wie oft neue Stellen geholt werden
+      REMOTE_SCOPE: world  # world = Remote-Stellen aus aller Welt, europe = nur Europa/weltweit
       # Optional und kostenpflichtig (ca. £8/Monat, 25 Test-Abrufe gratis): Key von https://developer.adzuna.com -> mehr Schweizer Stellen.
       # Eintragen in eine Datei .env neben docker-compose.yml: ADZUNA_APP_ID=... und ADZUNA_APP_KEY=...
       ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}

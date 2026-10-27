@@ -1,4 +1,5 @@
 const STATUS = { "": "Neu", saved: "Gemerkt", applied: "Beworben", interview: "Interview", offer: "Angebot", rejected: "Absage" };
+const EUROPE = new Set(["CH", "DE", "AT", "EU", "GB", "NL", "IE", "PT", "ES", "FR", "PL", "CZ", "SE", "DK"]);
 const CATS = ["DevOps", "Linux", "Plattform", "SysEng"];
 const CAT_LABEL = { DevOps: "DevOps", Linux: "Linux", Plattform: "Plattform", SysEng: "System Engineer" };
 const MODE_LABEL = { onsite: "Vor Ort", hybrid: "Hybrid", remote: "Remote" };
@@ -28,6 +29,8 @@ function filtered(skip) {
     if (f.mode && j.mode !== f.mode) return false;
     if (f.where === "CH" && c.country !== "CH") return false;
     if (f.where === "ABROAD" && c.country === "CH") return false;
+    if (f.where === "EUROPE" && !EUROPE.has(c.country)) return false;
+    if (f.where === "WORLD" && EUROPE.has(c.country)) return false;
     if (f.status !== "" && statusOf(j) !== (f.status === "new" ? "" : f.status)) return false;
     if (skip !== "cat" && f.cat && j.cat !== f.cat) return false;
     if (skip !== "city" && f.city && j.city !== f.city) return false;
@@ -45,6 +48,7 @@ const CH_BOUNDS = [[45.7, 5.8], [47.9, 10.6]];
 map.fitBounds(CH_BOUNDS);
 $("zoomCH").onclick = () => map.fitBounds(CH_BOUNDS);
 $("zoomEU").onclick = () => map.fitBounds([[36.5, -10], [55, 20]]);
+$("zoomWorld").onclick = () => map.setView([25, 10], 2);
 
 function drawMap(jobs) {
   markerLayer.clearLayers();
@@ -70,7 +74,7 @@ function drawCharts() {
   const text = css("--muted"), line = css("--line");
   const cityCounts = {};
   filtered("city").forEach(j => cityCounts[j.city] = (cityCounts[j.city] || 0) + 1);
-  const cities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]);
+  const cities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 15);
   const cityData = {
     labels: cities.map(c => c[0]),
     datasets: [{ data: cities.map(c => c[1]),

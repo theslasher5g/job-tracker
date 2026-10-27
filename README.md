@@ -23,7 +23,7 @@ Dann `http://localhost:8080` öffnen. Der erste Abruf startet automatisch (ca. 1
 
 ## Quellen
 
-Ohne Key: swissdevjobs.ch, arbeitnow.com, remotive.com, remoteok.com, jobicy.com, weworkremotely.com, himalayas.app (Remote-Quellen nur Europa/weltweit). Doppelte Stellen aus mehreren Quellen werden zusammengefasst.
+Ohne Key: swissdevjobs.ch, arbeitnow.com, remotive.com, remoteok.com, jobicy.com, weworkremotely.com, himalayas.app (Remote-Stellen aus aller Welt – USA, Kanada, Asien usw.; mit `REMOTE_SCOPE: europe` in `docker-compose.yml` nur Europa/weltweit). Doppelte Stellen aus mehreren Quellen werden zusammengefasst.
 
 Optional **Adzuna** (breiteste Schweizer Abdeckung): Key auf developer.adzuna.com holen (**kostenpflichtig**: nur 25 Test-Abrufe gratis, danach ca. £8/Monat – für den Tracker nicht nötig) und in eine Datei `.env` neben `docker-compose.yml` schreiben:
 

@@ -28,7 +28,7 @@
   <input id="q" type="search" placeholder="Suche: Titel, Firma, Stadt …">
   <select id="fLevel"><option value="">Alle Level</option><option>Junior</option><option>Mid</option><option>Senior</option></select>
   <select id="fMode"><option value="">Vor Ort / Remote</option><option value="onsite">Vor Ort</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option></select>
-  <select id="fWhere"><option value="">Schweiz + Ausland</option><option value="CH">Nur Schweiz</option><option value="ABROAD">Nur Ausland (Remote)</option></select>
+  <select id="fWhere"><option value="">Ganze Welt</option><option value="CH">Nur Schweiz</option><option value="EUROPE">Europa (inkl. Schweiz)</option><option value="ABROAD">Nur Ausland</option><option value="WORLD">Ausserhalb Europas</option></select>
   <select id="fStatus"><option value="">Alle Status</option></select>
   <div class="chips" id="catChips"></div>
   <button id="btnReset" class="btn small">Filter zurücksetzen</button>
@@ -38,7 +38,7 @@
   <section class="card mapcard">
     <div class="cardhead">
       <h2>Karte</h2>
-      <div><button class="btn small" id="zoomCH">Schweiz</button> <button class="btn small" id="zoomEU">Europa</button></div>
+      <div><button class="btn small" id="zoomCH">Schweiz</button> <button class="btn small" id="zoomEU">Europa</button> <button class="btn small" id="zoomWorld">Welt</button></div>
     </div>
     <div id="map" role="application" aria-label="Karte der Stellen"></div>
     <p class="hint">Kreis anklicken = Stellen dieser Stadt filtern. Grösse = Anzahl Stellen.</p>

@@ -17,7 +17,7 @@ from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone, timedelta
 
 MAX_AGE_DAYS = 45
-MAX_JOBS = 400
+MAX_JOBS = 800
 UA = "Mozilla/5.0 (compatible; job-tracker/1.0; self-hosted)"
 
 # name -> (lat, lng, country)
@@ -57,14 +57,28 @@ ALIASES = {
 COUNTRY_PLACES = {
     "CH": ("Schweiz (ohne Ort)", 46.8, 8.2, "CH"), "DE": ("Deutschland (Remote)", 51.2, 10.4, "DE"),
     "AT": ("Österreich (Remote)", 47.5, 14.5, "AT"), "EU": ("Remote Europa", 50.0, 14.0, "EU"),
+    "GB": ("Grossbritannien (Remote)", 54.0, -2.0, "GB"), "US": ("USA (Remote)", 39.8, -98.6, "US"),
+    "CA": ("Kanada (Remote)", 56.0, -106.0, "CA"), "NA": ("Nordamerika (Remote)", 45.0, -100.0, "NA"),
+    "SA": ("Lateinamerika (Remote)", -15.0, -60.0, "SA"), "IN": ("Indien (Remote)", 21.0, 78.0, "IN"),
+    "AS": ("Asien (Remote)", 34.0, 100.0, "AS"), "AF": ("Afrika (Remote)", 5.0, 20.0, "AF"),
+    "OC": ("Ozeanien (Remote)", -25.0, 134.0, "OC"), "WW": ("Weltweit (Remote)", 22.0, -35.0, "WW"),
 }
-EUROPE_TOKENS = [
-    "europe", "emea", "worldwide", "anywhere", "global", "switzerland", "germany", "austria", "netherlands",
-    "ireland", "portugal", "spain", "france", "united kingdom", "uk", "italy", "poland", "czech", "sweden",
-    "denmark", "belgium", "dach", "eu", "european", "world",
+EUROPE_CODES = {"CH", "DE", "AT", "EU", "GB", "NL", "IE", "PT", "ES", "FR", "PL", "CZ", "SE", "DK"}
+# Reihenfolge = Priorität (näher an der Schweiz zuerst). Text -> Region
+REGION_RULES = [
+    ("CH", r"switzerland|schweiz|suisse|svizzera"), ("DE", r"germany|deutschland"), ("AT", r"austria|österreich"),
+    ("GB", r"united kingdom|\buk\b|england|scotland|britain"),
+    ("EU", r"europe|emea|\beu\b|dach|netherlands|ireland|portugal|spain|france|italy|poland|czech|sweden|denmark|"
+           r"belgium|finland|norway|romania|hungary|greece|estonia|lithuania|latvia"),
+    ("US", r"\busa\b|\bus\b|u\.s\.|united states|new york|san francisco|california|texas|austin|seattle|boston|chicago|florida"),
+    ("CA", r"canada|toronto|vancouver"), ("NA", r"north america|americas"),
+    ("SA", r"latam|latin america|south america|brazil|argentina|colombia|chile|mexico"),
+    ("IN", r"india"),
+    ("AS", r"asia|apac|singapore|japan|china|philippines|vietnam|pakistan|indonesia|thailand|malaysia|korea"),
+    ("AF", r"africa|nigeria|kenya|egypt|morocco"), ("OC", r"australia|new zealand|oceania"),
 ]
-
-COUNTRY_NAMES = {"CH": ["switzerland", "schweiz", "suisse"], "DE": ["germany", "deutschland"], "AT": ["austria", "österreich"]}
+# REMOTE_SCOPE=europe -> wie früher nur Europa/weltweit; Standard "world" -> alle Regionen
+REMOTE_SCOPE = os.environ.get("REMOTE_SCOPE", "world").lower()
 
 RELEVANT = re.compile(
     r"devops|\bsre\b|site reliability|platform|plattform|linux|system ?engineer|systems? ?engineer|"
@@ -194,22 +208,20 @@ def from_arbeitnow(data):
     return [x for x in out if x]
 
 
-def europe_ok(where):
-    """Remote-Stelle ist aus der Schweiz/Europa bewerbbar? Leer = weltweit."""
-    where = clean(where).lower()
-    if not where:
-        return True
-    if re.search(r"\b(usa|us|u\.s\.|canada|north america|latam|india|apac|asia|africa)\b only|^(usa|united states|canada|india)$", where):
-        return False
-    return any(re.search(rf"\b{re.escape(t)}\b", where) for t in EUROPE_TOKENS)
+def region_of(where):
+    """Freitext einer Remote-Stelle -> Schlüssel in COUNTRY_PLACES. Leer/unbekannt = weltweit."""
+    w = clean(where).lower()
+    for code, rx in REGION_RULES:
+        if re.search(rx, w):
+            return code
+    return "WW"
 
 
 def remote_job(source, title, company, where, url, salary, date):
-    if not europe_ok(where):
+    code = region_of(where)
+    if REMOTE_SCOPE == "europe" and code not in EUROPE_CODES and code != "WW":
         return None
-    w = clean(where).lower()
-    code = next((c for c, names in COUNTRY_NAMES.items() if any(re.search(rf"\b{n}\b", w) for n in names)), None)
-    loc = place(where) or COUNTRY_PLACES.get(code) or COUNTRY_PLACES["EU"]
+    loc = place(where) or COUNTRY_PLACES[code]
     return make(source, title, company, loc, url, "remote", salary, date)
 
 
@@ -316,8 +328,11 @@ def fetch_all():
             seen.add(k); unique.append(j)
     jobs = {j["id"]: j for j in unique}
     cutoff = (datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)).date().isoformat()
-    final = sorted((j for j in jobs.values() if not j["date"] or j["date"] >= cutoff),
-                   key=lambda j: j["date"], reverse=True)[:MAX_JOBS]
+    fresh = sorted((j for j in jobs.values() if not j["date"] or j["date"] >= cutoff),
+                   key=lambda j: j["date"], reverse=True)
+    swiss = [j for j in fresh if j["country"] == "CH"]  # Schweizer Stellen werden nie wegen des Limits abgeschnitten
+    final = swiss + [j for j in fresh if j["country"] != "CH"][:max(0, MAX_JOBS - len(swiss))]
+    final.sort(key=lambda j: j["date"], reverse=True)
     return final, report
 
 
@@ -338,10 +353,11 @@ def selftest():
     assert len(sdj) == 1 and sdj[0]["city"] == "Zürich" and sdj[0]["level"] == "Junior" and sdj[0]["mode"] == "hybrid", sdj
     assert sdj[0]["salary"] == "90–105k CHF", sdj
     assert len(an) == 1 and an[0]["city"] == "Berlin" and an[0]["cat"] == "Plattform", an
-    assert len(rm) == 1 and rm[0]["level"] == "Senior" and rm[0]["country"] == "EU", rm
+    assert [j["country"] for j in rm] == ["EU", "US"] and rm[0]["level"] == "Senior", rm
     ro = from_remoteok([{"legal": "x"}, {"position": "Linux Systems Engineer", "company": "Z", "location": "Worldwide",
                          "url": "https://remoteok.com/z", "date": now, "salary_min": 80000, "salary_max": 100000},
                         {"position": "DevOps Engineer", "company": "Y", "location": "United States", "url": "https://remoteok.com/y"}])
+    assert [j["country"] for j in ro] == ["WW", "US"], ro
     jo = from_jobicy({"jobs": [{"jobTitle": "Junior DevOps Engineer", "companyName": "J", "jobGeo": "Switzerland",
                                 "url": "https://jobicy.com/j", "pubDate": "2026-10-20 10:00:00"}]})
     ww = from_wwr("<rss><channel><item><title>Acme: Senior Platform Engineer</title><region>Anywhere in the World</region>"
@@ -351,11 +367,14 @@ def selftest():
     az = from_adzuna({"results": [{"title": "Linux Engineer", "company": {"display_name": "Ad"}, "redirect_url": "https://adz/1",
                                    "location": {"display_name": "Basel", "area": ["Switzerland", "Basel-Stadt", "Basel"]},
                                    "created": now, "salary_min": 90000, "salary_max": 110000}]})
-    assert len(ro) == 1 and ro[0]["salary"] == "80–100k USD", ro
+    assert len(ro) == 2 and ro[0]["salary"] == "80–100k USD", ro
     assert len(jo) == 1 and jo[0]["level"] == "Junior" and jo[0]["date"] == "2026-10-20", jo
     assert len(ww) == 1 and ww[0]["company"] == "Acme" and ww[0]["level"] == "Senior" and ww[0]["date"] == "2026-10-20", ww
     assert len(hi) == 1 and hi[0]["city"].startswith("Deutschland"), hi
     assert len(az) == 1 and az[0]["city"] == "Basel" and az[0]["country"] == "CH", az
+    for txt, code in [("", "WW"), ("Worldwide", "WW"), ("USA Only", "US"), ("Canada", "CA"), ("Brazil, Argentina", "SA"),
+                      ("Asia", "AS"), ("Europe, USA", "EU"), ("Switzerland", "CH"), ("Remote - India", "IN"), ("Australia", "OC")]:
+        assert region_of(txt) == code, (txt, region_of(txt))
     print("selftest ok")
 
 
