@@ -23,7 +23,7 @@ Dann `http://localhost:8080` öffnen. Der erste Abruf startet automatisch (ca. 1
 
 ## Quellen
 
-Ohne Key: swissdevjobs.ch, arbeitnow.com, remotive.com, remoteok.com, jobicy.com, weworkremotely.com, himalayas.app (Remote-Stellen aus aller Welt – USA, Kanada, Asien usw.; mit `REMOTE_SCOPE: europe` in `docker-compose.yml` nur Europa/weltweit). Doppelte Stellen aus mehreren Quellen werden zusammengefasst.
+Ohne Key: swissdevjobs.ch, arbeitnow.com, remotive.com, remoteok.com, jobicy.com, weworkremotely.com, himalayas.app, workingnomads.com sowie die öffentlichen Karriereseiten (Greenhouse/Lever) einzelner Firmen wie GitLab, Cloudflare, Datadog, Canonical (Remote-Stellen aus aller Welt – USA, Kanada, Asien usw.; mit `REMOTE_SCOPE: europe` in `docker-compose.yml` nur Europa/weltweit). Bei den Karriereseiten werden nur Stellen mit Schweizer Standort oder Remote übernommen. Eigene Firmen trägst du mit `GREENHOUSE_BOARDS` / `LEVER_COMPANIES` in `docker-compose.yml` ein (Slug aus `boards.greenhouse.io/<slug>` bzw. `jobs.lever.co/<slug>`). Doppelte Stellen aus mehreren Quellen werden zusammengefasst.
 
 Optional **Adzuna** (breiteste Schweizer Abdeckung): Key auf developer.adzuna.com holen (**kostenpflichtig**: nur 25 Test-Abrufe gratis, danach ca. £8/Monat – für den Tracker nicht nötig) und in eine Datei `.env` neben `docker-compose.yml` schreiben:
 
@@ -32,6 +32,6 @@ ADZUNA_APP_ID=...
 ADZUNA_APP_KEY=...
 ```
 
-Danach `docker compose up -d`. Pro Quelle zeigt die Seite oben die Anzahl Stellen (⚠ = Abruf fehlgeschlagen, Details in `docker compose logs app`).
+Danach `docker compose up -d`. Pro Quelle zeigt die Seite oben die Anzahl Stellen (⚠ = alle Abrufe fehlgeschlagen, ⚠? = einzelne, z.B. unbekannte Firmen-Slugs; Details in `docker compose logs app`).
 
 Neue Quelle: Funktion in `app/fetcher.py` ergänzen und in `SOURCES` eintragen. Offline-Test der Normalisierung: `python3 -m app.fetcher`.

@@ -187,7 +187,7 @@ $("btnRefresh").onclick = async () => {
 };
 
 function drawMeta() {
-  const src = Object.entries(meta.sources || {}).map(([n, s]) => `${n}: ${s.jobs}${s.error ? " ⚠" : ""}`).join(" · ");
+  const src = Object.entries(meta.sources || {}).map(([n, s]) => `${n}: ${s.jobs}${s.error ? " ⚠" : s.warn ? " ⚠?" : ""}`).join(" · ");
   $("btnRefresh").disabled = !!meta.running;
   $("meta").textContent = meta.running ? "Aktualisiere Stellen …"
     : meta.at ? `Zuletzt aktualisiert: ${new Date(meta.at).toLocaleString("de-CH")} — ${src}` : "";

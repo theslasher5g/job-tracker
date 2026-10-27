@@ -5,13 +5,15 @@ Quellen (alle ohne API-Key):
   - swissdevjobs.ch  (Schweiz)
   - arbeitnow.com    (DACH, nur Remote-Stellen im Ausland + Schweiz)
   - remotive.com, remoteok.com, jobicy.com, weworkremotely.com, himalayas.app  (Remote, nur Europa/Worldwide)
+  - workingnomads.com (Remote)
+  - Greenhouse- und Lever-Karrierseiten einzelner Firmen (Schweizer Standorte + Remote, Liste per Umgebungsvariable erweiterbar)
   - adzuna.com       (Schweiz, nur wenn ADZUNA_APP_ID und ADZUNA_APP_KEY gesetzt sind; kostenloser Key)
 
 Nur Python-Standardbibliothek. `python3 -m app.fetcher` führt einen Offline-Selbsttest der
 Normalisierung aus.
 """
 import hashlib, json, os, re, sys, time
-import urllib.request, urllib.parse
+import urllib.request, urllib.parse, urllib.error
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone, timedelta
@@ -95,14 +97,20 @@ def get_text(url, tries=3):
             req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json, application/xml, */*"})
             with urllib.request.urlopen(req, timeout=40) as r:
                 return r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            last = e
+            if e.code < 500 and e.code != 429:
+                break  # 404 & Co. lohnen keinen zweiten Versuch
+            time.sleep(2 * (i + 1))
         except Exception as e:  # noqa: BLE001 - jede Quelle darf einzeln scheitern
             last = e
             time.sleep(2 * (i + 1))
     raise last
 
 
-def as_json(fn):
-    return lambda raw: fn(json.loads(raw))
+def as_json(fn, with_url=False):
+    """Quelle mit JSON-Antwort. with_url=True gibt zusätzlich die abgerufene URL weiter (für Firmen-Karriereseiten)."""
+    return lambda raw, url: fn(json.loads(raw), url) if with_url else fn(json.loads(raw))
 
 
 def clean(s):
@@ -288,6 +296,53 @@ def from_adzuna(data):
     return [x for x in out if x]
 
 
+def ats_job(source, title, company, where, url, date, remote=False):
+    """Stelle einer Firmen-Karriereseite: behalten, wenn Schweizer Standort oder Remote."""
+    w = clean(where)
+    remote = remote or bool(re.search(r"remote|anywhere|distributed|work from home", w, re.I))
+    loc = place(w)
+    if not (loc and loc[3] == "CH") and re.search(REGION_RULES[0][1], w, re.I):
+        loc = COUNTRY_PLACES["CH"]
+    if loc and loc[3] == "CH":
+        return make(source, title, company, loc, url, "remote" if remote else "hybrid", "", date)
+    if remote:
+        return remote_job(source, title, company, w, url, "", date)
+    return None
+
+
+def from_workingnomads(data):
+    out = [remote_job("workingnomads.com", j.get("title"), j.get("company_name"), j.get("location"), j.get("url"), "",
+                      parse_date(j.get("pub_date"))) for j in data if isinstance(j, dict)]
+    return [x for x in out if x]
+
+
+def from_greenhouse(data, url):
+    slug = url.split("/boards/")[1].split("/")[0]
+    out = [ats_job(f"greenhouse:{slug}", j.get("title"), j.get("company_name") or slug.replace("-", " ").title(),
+                   (j.get("location") or {}).get("name"), j.get("absolute_url"),
+                   parse_date(j.get("first_published") or j.get("updated_at"))) for j in data.get("jobs", [])]
+    return [x for x in out if x]
+
+
+def from_lever(data, url):
+    slug = url.split("/postings/")[1].split("?")[0]
+    out = []
+    for j in data if isinstance(data, list) else []:
+        c = j.get("categories") or {}
+        where = " | ".join([c.get("location") or ""] + list(c.get("allLocations") or []))
+        out.append(ats_job(f"lever:{slug}", j.get("text"), slug.replace("-", " ").title(), where, j.get("hostedUrl"),
+                           parse_date(j.get("createdAt")), remote=(j.get("workplaceType") == "remote")))
+    return [x for x in out if x]
+
+
+# Öffentliche Karriereseiten (ohne Key). Eigene Firmen: GREENHOUSE_BOARDS / LEVER_COMPANIES (kommagetrennt, Slug aus der URL
+# boards.greenhouse.io/<slug> bzw. jobs.lever.co/<slug>). Unbekannte Slugs werden einfach übersprungen.
+GREENHOUSE_DEFAULT = "gitlab,cloudflare,datadog,mongodb,elastic,canonical,grafanalabs,okta,digitalocean,dropbox,databricks,pagerduty,scandit,nexthink,proton"
+LEVER_DEFAULT = "palantir,veeam,sonarsource"
+GREENHOUSE = [x.strip() for x in os.environ.get("GREENHOUSE_BOARDS", GREENHOUSE_DEFAULT).split(",") if x.strip()]
+LEVER = [x.strip() for x in os.environ.get("LEVER_COMPANIES", LEVER_DEFAULT).split(",") if x.strip()]
+
+
 SOURCES = [
     ("swissdevjobs.ch", ["https://swissdevjobs.ch/api/jobsLight"], as_json(from_swissdevjobs)),
     ("arbeitnow.com", [f"https://www.arbeitnow.com/api/job-board-api?page={p}" for p in (1, 2, 3)], as_json(from_arbeitnow)),
@@ -297,8 +352,11 @@ SOURCES = [
     ("remoteok.com", ["https://remoteok.com/api"], as_json(from_remoteok)),
     ("jobicy.com", [f"https://jobicy.com/api/v2/remote-jobs?count=50&geo={g}&tag={t}"
                     for g in ("europe", "switzerland") for t in ("devops", "linux")], as_json(from_jobicy)),
-    ("weworkremotely.com", ["https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss"], from_wwr),
+    ("weworkremotely.com", ["https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss"], lambda raw, url: from_wwr(raw)),
     ("himalayas.app", ["https://himalayas.app/jobs/api?limit=100"], as_json(from_himalayas)),
+    ("workingnomads.com", ["https://www.workingnomads.com/api/exposed_jobs/"], as_json(from_workingnomads)),
+    ("greenhouse", [f"https://boards-api.greenhouse.io/v1/boards/{b}/jobs" for b in GREENHOUSE], as_json(from_greenhouse, True)),
+    ("lever", [f"https://api.lever.co/v0/postings/{c}?mode=json" for c in LEVER], as_json(from_lever, True)),
 ]
 if os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY"):
     _q = urllib.parse.urlencode({"app_id": os.environ["ADZUNA_APP_ID"], "app_key": os.environ["ADZUNA_APP_KEY"],
@@ -312,15 +370,18 @@ def fetch_all():
     """Alle Quellen abfragen -> (Stellenliste, Bericht pro Quelle). Einzelne Quellen dürfen scheitern."""
     jobs, report = {}, {}
     for name, urls, fn in SOURCES:
-        n, err = 0, None
+        n, errs = 0, []
         for u in urls:
             try:
-                for job in fn(get_text(u)):
+                for job in fn(get_text(u), u):
                     jobs.setdefault(job["id"], job); n += 1
             except Exception as e:  # noqa: BLE001
-                err = f"{type(e).__name__}: {e}"
-                print(f"[{name}] {u} -> {err}", file=sys.stderr)
-        report[name] = {"jobs": n, **({"error": err} if err else {})}
+                errs.append(f"{type(e).__name__}: {e}")
+                print(f"[{name}] {u} -> {errs[-1]}", file=sys.stderr)
+        rep = {"jobs": n}
+        if errs:  # "error" = alle Abrufe fehlgeschlagen, "warn" = nur einzelne (z.B. unbekannte Firmen-Slugs)
+            rep["error" if len(errs) == len(urls) else "warn"] = f"{len(errs)}/{len(urls)} fehlgeschlagen, zuletzt: {errs[-1]}"
+        report[name] = rep
     seen, unique = set(), []
     for j in jobs.values():  # gleiche Stelle bei mehreren Quellen nur einmal (erste Quelle gewinnt)
         k = (j["title"].lower(), j["company"].lower())
@@ -372,6 +433,19 @@ def selftest():
     assert len(ww) == 1 and ww[0]["company"] == "Acme" and ww[0]["level"] == "Senior" and ww[0]["date"] == "2026-10-20", ww
     assert len(hi) == 1 and hi[0]["city"].startswith("Deutschland"), hi
     assert len(az) == 1 and az[0]["city"] == "Basel" and az[0]["country"] == "CH", az
+    wn = from_workingnomads([{"title": "DevOps Engineer", "company_name": "WN", "location": "Anywhere", "url": "https://wn/1", "pub_date": now}])
+    gh = from_greenhouse({"jobs": [
+        {"title": "Site Reliability Engineer", "company_name": "GL", "location": {"name": "Zurich, Switzerland"}, "absolute_url": "https://gh/1", "updated_at": now},
+        {"title": "Platform Engineer", "company_name": "GL", "location": {"name": "Remote - EMEA"}, "absolute_url": "https://gh/2", "updated_at": now},
+        {"title": "Linux Engineer", "company_name": "GL", "location": {"name": "San Francisco"}, "absolute_url": "https://gh/3", "updated_at": now}]},
+        "https://boards-api.greenhouse.io/v1/boards/gitlab/jobs")
+    lv = from_lever([{"text": "DevOps Engineer", "hostedUrl": "https://lv/1", "createdAt": int(time.time() * 1000),
+                      "categories": {"location": "Bern", "allLocations": ["Bern"]}, "workplaceType": "hybrid"},
+                     {"text": "Linux Admin", "hostedUrl": "https://lv/2", "categories": {"location": "London"}}],
+                    "https://api.lever.co/v0/postings/palantir?mode=json")
+    assert len(wn) == 1 and wn[0]["country"] == "WW", wn
+    assert [(j["country"], j["mode"]) for j in gh] == [("CH", "hybrid"), ("EU", "remote")], gh
+    assert len(lv) == 1 and lv[0]["city"] == "Bern" and lv[0]["company"] == "Palantir", lv
     for txt, code in [("", "WW"), ("Worldwide", "WW"), ("USA Only", "US"), ("Canada", "CA"), ("Brazil, Argentina", "SA"),
                       ("Asia", "AS"), ("Europe, USA", "EU"), ("Switzerland", "CH"), ("Remote - India", "IN"), ("Australia", "OC")]:
         assert region_of(txt) == code, (txt, region_of(txt))
