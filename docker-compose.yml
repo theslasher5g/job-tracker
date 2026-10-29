@@ -25,6 +25,12 @@ services:
       # Optional: eigene Firmen-Karriereseiten (Slug aus boards.greenhouse.io/<slug> bzw. jobs.lever.co/<slug>), kommagetrennt:
       # GREENHOUSE_BOARDS: "gitlab,cloudflare,meinefirma"
       # LEVER_COMPANIES: "palantir,meinefirma"
+      # Weitere Karriereseiten-Systeme (alle optional, kommagetrennt, Slug aus der Karriereseiten-URL):
+      # ASHBY_BOARDS: "firma"              -> jobs.ashbyhq.com/firma
+      # WORKABLE_ACCOUNTS: "firma"         -> apply.workable.com/firma
+      # RECRUITEE_COMPANIES: "firma"       -> firma.recruitee.com
+      # SMARTRECRUITERS_COMPANIES: "Firma" -> jobs.smartrecruiters.com/Firma (Gross-/Kleinschreibung beachten)
+      # PERSONIO_COMPANIES: "firma"        -> firma.jobs.personio.de
       REMOTE_SCOPE: world  # world = Remote-Stellen aus aller Welt, europe = nur Europa/weltweit
       # Optional und kostenpflichtig (ca. £8/Monat, 25 Test-Abrufe gratis): Key von https://developer.adzuna.com -> mehr Schweizer Stellen.
       # Eintragen in eine Datei .env neben docker-compose.yml: ADZUNA_APP_ID=... und ADZUNA_APP_KEY=...

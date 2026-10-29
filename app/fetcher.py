@@ -5,14 +5,15 @@ Quellen (alle ohne API-Key):
   - swissdevjobs.ch  (Schweiz)
   - arbeitnow.com    (DACH, nur Remote-Stellen im Ausland + Schweiz)
   - remotive.com, remoteok.com, jobicy.com, weworkremotely.com, himalayas.app  (Remote, nur Europa/Worldwide)
-  - workingnomads.com (Remote)
+  - workingnomads.com (Remote), Hacker News "Who is hiring" (Remote + Schweiz)
+  - optional: Ashby, Workable, Recruitee, SmartRecruiters, Personio (Karriereseiten einzelner Firmen, per Umgebungsvariable)
   - Greenhouse- und Lever-Karrierseiten einzelner Firmen (Schweizer Standorte + Remote, Liste per Umgebungsvariable erweiterbar)
   - adzuna.com       (Schweiz, nur wenn ADZUNA_APP_ID und ADZUNA_APP_KEY gesetzt sind; kostenloser Key)
 
 Nur Python-Standardbibliothek. `python3 -m app.fetcher` führt einen Offline-Selbsttest der
 Normalisierung aus.
 """
-import hashlib, json, os, re, sys, time
+import hashlib, html, json, os, re, sys, time
 import urllib.request, urllib.parse, urllib.error
 import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
@@ -335,6 +336,104 @@ def from_lever(data, url):
     return [x for x in out if x]
 
 
+COUNTRY_WORDS = {"ch": "Switzerland", "de": "Germany", "at": "Austria", "gb": "United Kingdom", "uk": "United Kingdom",
+                 "us": "USA", "ca": "Canada", "in": "India", "au": "Australia", "br": "Brazil"}
+
+
+def where_of(*parts):
+    """Ort/Land-Felder zu einem Text zusammensetzen; zweibuchstabige Ländercodes werden ausgeschrieben."""
+    return ", ".join(COUNTRY_WORDS.get(str(p).lower(), str(p)) for p in parts if p)
+
+
+def slug_title(slug):
+    return slug.replace("-", " ").replace("_", " ").title()
+
+
+def find_swiss_place(text):
+    for name, v in PLACES.items():
+        if v[2] == "CH" and re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text, re.I):
+            return name, v[0], v[1], "CH"
+    for alias, name in ALIASES.items():
+        if PLACES[name][2] == "CH" and re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", text, re.I):
+            return (name,) + PLACES[name]
+    return None
+
+
+def from_ashby(data, url):
+    slug = url.split("/job-board/")[1].split("?")[0]
+    out = []
+    for j in data.get("jobs", []):
+        where = " | ".join([j.get("location") or ""] + [x.get("location", "") for x in j.get("secondaryLocations") or []])
+        out.append(ats_job(f"ashby:{slug}", j.get("title"), slug_title(slug), where, j.get("jobUrl"),
+                           parse_date(j.get("publishedAt")), remote=bool(j.get("isRemote"))))
+    return [x for x in out if x]
+
+
+def from_workable(data, url):
+    slug = url.split("/accounts/")[1].split("?")[0]
+    out = [ats_job(f"workable:{slug}", j.get("title"), data.get("name") or slug_title(slug),
+                   where_of(j.get("city"), j.get("country")), j.get("url") or j.get("shortlink"),
+                   parse_date(j.get("published_on") or j.get("created_at")), remote=bool(j.get("telecommuting")))
+           for j in data.get("jobs", [])]
+    return [x for x in out if x]
+
+
+def from_recruitee(data, url):
+    slug = url.split("//")[1].split(".recruitee.com")[0]
+    out = [ats_job(f"recruitee:{slug}", j.get("title"), j.get("company_name") or slug_title(slug),
+                   where_of(j.get("city"), j.get("country_code") or j.get("country")), j.get("careers_url"),
+                   parse_date(j.get("published_at") or j.get("created_at")), remote=bool(j.get("remote")))
+           for j in data.get("offers", [])]
+    return [x for x in out if x]
+
+
+def from_smartrecruiters(data, url):
+    slug = url.split("/companies/")[1].split("/")[0]
+    out = []
+    for j in data.get("content", []):
+        loc = j.get("location") or {}
+        out.append(ats_job(f"smartrecruiters:{slug}", j.get("name"), (j.get("company") or {}).get("name") or slug_title(slug),
+                           where_of(loc.get("city"), loc.get("country")), f"https://jobs.smartrecruiters.com/{slug}/{j.get('id')}",
+                           parse_date(j.get("releasedDate")), remote=bool(loc.get("remote"))))
+    return [x for x in out if x]
+
+
+def from_personio(raw, url):
+    slug = url.split("//")[1].split(".jobs.personio")[0]
+    out = []
+    for pos in ET.fromstring(raw).iter("position"):
+        out.append(ats_job(f"personio:{slug}", pos.findtext("name"), slug_title(slug), pos.findtext("office"),
+                           f"https://{slug}.jobs.personio.de/job/{pos.findtext('id')}", parse_date(pos.findtext("createdAt"))))
+    return [x for x in out if x]
+
+
+def from_hn(data):
+    """Hacker News „Who is hiring“: erste Zeile eines Kommentars = 'Firma | Rolle | Ort | REMOTE'."""
+    out = []
+    for h in data.get("hits", []):
+        text = html.unescape(re.split(r"<p>|\n", h.get("comment_text") or "", maxsplit=1)[0])
+        line = clean(text)
+        parts = [x.strip() for x in line.split("|")]
+        if len(parts) < 3 or len(line) > 400:
+            continue
+        title = next((x for x in parts[1:] if RELEVANT.search(x)), None)
+        if not title:
+            continue
+        url = f"https://news.ycombinator.com/item?id={h.get('objectID')}"
+        date = parse_date(h.get("created_at"))
+        remote = bool(re.search(r"remote", line, re.I))
+        loc = find_swiss_place(line)
+        if loc:
+            out.append(make("news.ycombinator.com", title[:120], parts[0][:80], loc, url, "remote" if remote else "hybrid", "", date))
+        elif remote:
+            out.append(remote_job("news.ycombinator.com", title[:120], parts[0][:80], line, url, "", date))
+    return [x for x in out if x]
+
+
+def _slugs(env, default=""):
+    return [x.strip() for x in os.environ.get(env, default).split(",") if x.strip()]
+
+
 # Öffentliche Karriereseiten (ohne Key). Eigene Firmen: GREENHOUSE_BOARDS / LEVER_COMPANIES (kommagetrennt, Slug aus der URL
 # boards.greenhouse.io/<slug> bzw. jobs.lever.co/<slug>). Unbekannte Slugs werden einfach übersprungen.
 GREENHOUSE_DEFAULT = "gitlab,cloudflare,datadog,mongodb,elastic,canonical,grafanalabs,okta,digitalocean,dropbox,databricks,pagerduty,scandit,nexthink,proton"
@@ -358,6 +457,20 @@ SOURCES = [
     ("greenhouse", [f"https://boards-api.greenhouse.io/v1/boards/{b}/jobs" for b in GREENHOUSE], as_json(from_greenhouse, True)),
     ("lever", [f"https://api.lever.co/v0/postings/{c}?mode=json" for c in LEVER], as_json(from_lever, True)),
 ]
+_HN_Q = ("devops", "site reliability", "platform engineer", "linux", "systems engineer", "sysadmin")
+SOURCES.append(("hackernews", ["https://hn.algolia.com/api/v1/search_by_date?tags=comment&hitsPerPage=100&query="
+                               + urllib.parse.quote(q) + "&numericFilters=created_at_i>{since}" for q in _HN_Q], as_json(from_hn)))
+# Weitere Karriereseiten-Systeme: standardmässig leer, per Umgebungsvariable (kommagetrennt) aktivieren
+for _name, _env, _fmt, _fn in [
+    ("ashby", "ASHBY_BOARDS", "https://api.ashbyhq.com/posting-api/job-board/{}", as_json(from_ashby, True)),
+    ("workable", "WORKABLE_ACCOUNTS", "https://apply.workable.com/api/v1/widget/accounts/{}", as_json(from_workable, True)),
+    ("recruitee", "RECRUITEE_COMPANIES", "https://{}.recruitee.com/api/offers/", as_json(from_recruitee, True)),
+    ("smartrecruiters", "SMARTRECRUITERS_COMPANIES", "https://api.smartrecruiters.com/v1/companies/{}/postings?limit=100",
+     as_json(from_smartrecruiters, True)),
+    ("personio", "PERSONIO_COMPANIES", "https://{}.jobs.personio.de/xml", lambda raw, url: from_personio(raw, url)),
+]:
+    if _slugs(_env):
+        SOURCES.append((_name, [_fmt.format(x) for x in _slugs(_env)], _fn))
 if os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY"):
     _q = urllib.parse.urlencode({"app_id": os.environ["ADZUNA_APP_ID"], "app_key": os.environ["ADZUNA_APP_KEY"],
                                  "results_per_page": 50, "max_days_old": MAX_AGE_DAYS})
@@ -373,7 +486,7 @@ def fetch_all():
         n, errs = 0, []
         for u in urls:
             try:
-                for job in fn(get_text(u), u):
+                for job in fn(get_text(u.replace("{since}", str(int(time.time()) - 35 * 86400))), u):
                     jobs.setdefault(job["id"], job); n += 1
             except Exception as e:  # noqa: BLE001
                 errs.append(f"{type(e).__name__}: {e}")
@@ -446,6 +559,23 @@ def selftest():
     assert len(wn) == 1 and wn[0]["country"] == "WW", wn
     assert [(j["country"], j["mode"]) for j in gh] == [("CH", "hybrid"), ("EU", "remote")], gh
     assert len(lv) == 1 and lv[0]["city"] == "Bern" and lv[0]["company"] == "Palantir", lv
+    hn = from_hn({"hits": [
+        {"objectID": "1", "created_at": now, "comment_text": "Acme | DevOps Engineer | Zurich, Switzerland | ONSITE<p>We do things"},
+        {"objectID": "2", "created_at": now, "comment_text": "Foo &amp; Co | Senior Platform Engineer | REMOTE (US only) | Full-time<p>x"},
+        {"objectID": "3", "created_at": now, "comment_text": "Looks like a normal comment about devops but no pipes"}]})
+    assert [(j["company"], j["city"], j["mode"]) for j in hn] == [("Acme", "Zürich", "hybrid"), ("Foo & Co", "USA (Remote)", "remote")], hn
+    ash = from_ashby({"jobs": [{"title": "Platform Engineer", "location": "Zurich", "isRemote": False, "jobUrl": "https://ashby/1", "publishedAt": now}]},
+                     "https://api.ashbyhq.com/posting-api/job-board/acme")
+    wk = from_workable({"name": "WK", "jobs": [{"title": "Linux Engineer", "city": "Basel", "country": "CH", "url": "https://wk/1", "published_on": "2026-10-20"}]},
+                       "https://apply.workable.com/api/v1/widget/accounts/wk")
+    rc = from_recruitee({"offers": [{"title": "DevOps Engineer", "company_name": "RC", "city": "Bern", "country_code": "CH", "careers_url": "https://rc/1", "created_at": now}]},
+                        "https://rc.recruitee.com/api/offers/")
+    sr = from_smartrecruiters({"content": [{"id": "9", "name": "Systems Engineer", "releasedDate": now, "location": {"city": "Genf", "country": "ch"}}]},
+                              "https://api.smartrecruiters.com/v1/companies/Acme/postings?limit=100")
+    pe = from_personio("<workzag-jobs><position><id>5</id><office>Luzern</office><name>Linux Systemadministrator</name><createdAt>2026-10-20T10:00:00+00:00</createdAt></position></workzag-jobs>",
+                       "https://pe.jobs.personio.de/xml")
+    assert [j["city"] for j in ash + wk + rc + sr + pe] == ["Zürich", "Basel", "Bern", "Genf", "Luzern"], (ash, wk, rc, sr, pe)
+    assert sr[0]["url"] == "https://jobs.smartrecruiters.com/Acme/9" and pe[0]["url"].endswith("/job/5"), (sr, pe)
     for txt, code in [("", "WW"), ("Worldwide", "WW"), ("USA Only", "US"), ("Canada", "CA"), ("Brazil, Argentina", "SA"),
                       ("Asia", "AS"), ("Europe, USA", "EU"), ("Switzerland", "CH"), ("Remote - India", "IN"), ("Australia", "OC")]:
         assert region_of(txt) == code, (txt, region_of(txt))
