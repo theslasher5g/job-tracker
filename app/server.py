@@ -8,7 +8,7 @@ from . import db, fetcher
 REFRESH_HOURS = float(os.environ.get("REFRESH_HOURS", "6"))
 STALE_DAYS = 14  # Stellen, die seit so vielen Tagen nicht mehr auftauchen, werden entfernt (ausser getrackte)
 STATUSES = {"saved", "applied", "interview", "offer", "rejected"}
-CATS, LEVELS, MODES = {"DevOps", "Linux", "Plattform", "SysEng"}, {"Junior", "Mid", "Senior"}, {"onsite", "hybrid", "remote"}
+CATS, LEVELS, MODES = {"DevOps", "Linux", "Plattform", "SysEng", "Security", "Cloud", "AI"}, {"Junior", "Mid", "Senior"}, {"onsite", "hybrid", "remote"}
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 _lock = threading.Lock()

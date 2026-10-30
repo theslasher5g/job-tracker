@@ -36,6 +36,8 @@ services:
       # Eintragen in eine Datei .env neben docker-compose.yml: ADZUNA_APP_ID=... und ADZUNA_APP_KEY=...
       ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
       ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
+      # Optional: Jooble-Key (Schweiz-Stellen, API-Zugang auf jooble.org/api/about beantragen; Bedingungen vorher prüfen)
+      JOOBLE_KEY: ${JOOBLE_KEY:-}
     ports:
       - "127.0.0.1:8080:8080"   # nur von diesem PC aus erreichbar (keine Anmeldung eingebaut)
     restart: unless-stopped

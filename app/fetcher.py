@@ -83,19 +83,33 @@ REGION_RULES = [
 # REMOTE_SCOPE=europe -> wie früher nur Europa/weltweit; Standard "world" -> alle Regionen
 REMOTE_SCOPE = os.environ.get("REMOTE_SCOPE", "world").lower()
 
+_AI = (r"(\bai\b|\bml\b|machine learning|\bllm\b|genai|generative ai|mlops|\bki\b)")
 RELEVANT = re.compile(
+    # Infrastruktur / DevOps / Linux / Plattform
     r"devops|\bsre\b|site reliability|platform|plattform|linux|system ?engineer|systems? ?engineer|"
-    r"system ?admin|sysadmin|systemadministrator|systemtechniker|systemingenieur|cloud engineer|"
-    r"infrastructure|infrastruktur|kubernetes|\bk8s\b|release engineer|automation engineer|ci/cd", re.I)
-NOT_RELEVANT = re.compile(r"sales|account manager|recruit|marketing|designer|data scientist|frontend|front-end|"
-                          r"\bpm\b|product manager|customer success", re.I)
+    r"system ?admin|sysadmin|systemadministrator|systemtechniker|systemingenieur|"
+    r"infrastructure|infrastruktur|kubernetes|\bk8s\b|release engineer|automation engineer|ci/cd|network engineer|netzwerk|"
+    # Cloud
+    r"cloud|\baws\b|\bazure\b|\bgcp\b|"
+    # Security
+    r"security (engineer|analyst|architect|specialist|consultant|operations|administrator|officer)|cyber|infosec|"
+    r"information security|it[- ]security|informationssicherheit|\bciso\b|pentest|penetration|devsecops|\bsoc\b|"
+    r"\biam\b|appsec|sicherheitsingenieur|"
+    # AI / ML (nur Engineering-Rollen)
+    + _AI + r".{0,30}(engineer|ops|infrastructure|platform|architect|admin|developer|specialist)|"
+    r"(engineer|architect|developer|ingenieur).{0,25}" + _AI, re.I)
+NOT_RELEVANT = re.compile(r"sales|account (manager|executive)|recruit|marketing|designer|data scientist|frontend|front-end|"
+                          r"\bpm\b|product manager|customer success|security (guard|officer\b.*(site|building))|physical security|"
+                          r"wachmann|facility|hausmeister|sicherheitsmitarbeiter|cloud (sales|account|success)", re.I)
 
 
-def get_text(url, tries=3):
+def get_text(url, tries=3, body=None):
     last = None
     for i in range(tries):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json, application/xml, */*"})
+            req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json, application/xml, */*",
+                                                       **({"Content-Type": "application/json"} if body else {})},
+                                         data=body.encode() if body else None)
             with urllib.request.urlopen(req, timeout=40) as r:
                 return r.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
@@ -136,15 +150,21 @@ def place(name):
 
 def classify(title):
     t = title.lower()
-    if "linux" in t:
+    if re.search(r"security|cyber|infosec|pentest|penetration|devsecops|\bsoc\b|\biam\b|appsec|\bciso\b|sicherheit", t):
+        cat = "Security"
+    elif re.search(_AI, t):
+        cat = "AI"
+    elif "linux" in t:
         cat = "Linux"
     elif re.search(r"devops|\bsre\b|reliability|ci/cd|release", t):
         cat = "DevOps"
-    elif re.search(r"platform|plattform|cloud|kubernetes|k8s|infrastructure|infrastruktur", t):
+    elif re.search(r"cloud|\baws\b|\bazure\b|\bgcp\b", t):
+        cat = "Cloud"
+    elif re.search(r"platform|plattform|kubernetes|k8s|infrastructure|infrastruktur|network|netzwerk", t):
         cat = "Plattform"
     else:
         cat = "SysEng"
-    if re.search(r"junior|\bjr\b|trainee|praktik|entry|berufseinsteiger|apprentice|lernende|werkstudent", t):
+    if re.search(r"junior|\bjr\b|trainee|praktik|\bintern(ship)?\b|entry|berufseinsteiger|apprentice|lernende|werkstudent", t):
         lvl = "Junior"
     elif re.search(r"senior|\bsr\b|lead|principal|staff|head of|architect", t):
         lvl = "Senior"
@@ -430,6 +450,26 @@ def from_hn(data):
     return [x for x in out if x]
 
 
+def from_wpjobs(raw, url):
+    """WP-Job-Manager-RSS (jobspresso.co, euremotejobs.com): <job_listing:location>/<job_listing:company>."""
+    host = url.split("//")[1].split("/")[0].replace("www.", "")
+    out = []
+    for it in ET.fromstring(raw).iter("item"):
+        ext = {c.tag.rsplit("}", 1)[-1]: (c.text or "") for c in it if "}" in c.tag}
+        out.append(remote_job(host, it.findtext("title"), ext.get("company"), ext.get("location"),
+                              clean(it.findtext("link")), "", parse_date(it.findtext("pubDate"))))
+    return [x for x in out if x]
+
+
+def from_jooble(data, url):
+    out = []
+    for j in data.get("jobs", []):
+        loc = place(j.get("location")) or find_swiss_place(clean(j.get("location"))) or COUNTRY_PLACES["CH"]
+        out.append(make("jooble.org", j.get("title"), j.get("company"), loc, j.get("link"), "onsite", clean(j.get("salary")),
+                        parse_date(j.get("updated"))))
+    return [x for x in out if x]
+
+
 def _slugs(env, default=""):
     return [x.strip() for x in os.environ.get(env, default).split(",") if x.strip()]
 
@@ -442,22 +482,29 @@ GREENHOUSE = [x.strip() for x in os.environ.get("GREENHOUSE_BOARDS", GREENHOUSE_
 LEVER = [x.strip() for x in os.environ.get("LEVER_COMPANIES", LEVER_DEFAULT).split(",") if x.strip()]
 
 
+# Suchbegriffe für Quellen mit Stichwortsuche
+SEARCH_TERMS = ("devops", "linux", "platform engineer", "site reliability", "infrastructure", "cloud engineer",
+                "security engineer", "cybersecurity", "machine learning engineer", "ai engineer", "sysadmin")
+
 SOURCES = [
     ("swissdevjobs.ch", ["https://swissdevjobs.ch/api/jobsLight"], as_json(from_swissdevjobs)),
     ("arbeitnow.com", [f"https://www.arbeitnow.com/api/job-board-api?page={p}" for p in (1, 2, 3)], as_json(from_arbeitnow)),
-    ("remotive.com", ["https://remotive.com/api/remote-jobs?category=devops&limit=100",
-                      "https://remotive.com/api/remote-jobs?search=linux&limit=100",
-                      "https://remotive.com/api/remote-jobs?search=platform%20engineer&limit=100"], as_json(from_remotive)),
-    ("remoteok.com", ["https://remoteok.com/api"], as_json(from_remoteok)),
-    ("jobicy.com", [f"https://jobicy.com/api/v2/remote-jobs?count=50&geo={g}&tag={t}"
-                    for g in ("europe", "switzerland") for t in ("devops", "linux")], as_json(from_jobicy)),
+    ("remotive.com", ["https://remotive.com/api/remote-jobs?category=devops&limit=100"]
+     + [f"https://remotive.com/api/remote-jobs?search={urllib.parse.quote(q)}&limit=100" for q in SEARCH_TERMS], as_json(from_remotive)),
+    ("remoteok.com", ["https://remoteok.com/api"] + [f"https://remoteok.com/api?tag={t}" for t in
+                                                    ("devops", "sysadmin", "security", "cloud", "infosec", "machine-learning", "aws")], as_json(from_remoteok)),
+    ("jobicy.com", [f"https://jobicy.com/api/v2/remote-jobs?count=50&geo={g}&tag={urllib.parse.quote(t)}"
+                    for g in ("europe", "switzerland") for t in SEARCH_TERMS], as_json(from_jobicy)),
     ("weworkremotely.com", ["https://weworkremotely.com/categories/remote-devops-sysadmin-jobs.rss"], lambda raw, url: from_wwr(raw)),
-    ("himalayas.app", ["https://himalayas.app/jobs/api?limit=100"], as_json(from_himalayas)),
+    ("himalayas.app", ["https://himalayas.app/jobs/api?limit=100"]
+     + [f"https://himalayas.app/jobs/api/search?q={urllib.parse.quote(q)}&sort=recent" for q in SEARCH_TERMS], as_json(from_himalayas)),
+    ("jobspresso.co / euremotejobs.com", [f"https://{h}/?feed=job_feed&search_keywords={urllib.parse.quote(q)}"
+                                          for h in ("jobspresso.co", "euremotejobs.com") for q in SEARCH_TERMS], lambda raw, url: from_wpjobs(raw, url)),
     ("workingnomads.com", ["https://www.workingnomads.com/api/exposed_jobs/"], as_json(from_workingnomads)),
     ("greenhouse", [f"https://boards-api.greenhouse.io/v1/boards/{b}/jobs" for b in GREENHOUSE], as_json(from_greenhouse, True)),
     ("lever", [f"https://api.lever.co/v0/postings/{c}?mode=json" for c in LEVER], as_json(from_lever, True)),
 ]
-_HN_Q = ("devops", "site reliability", "platform engineer", "linux", "systems engineer", "sysadmin")
+_HN_Q = SEARCH_TERMS + ("systems engineer", "devsecops")
 SOURCES.append(("hackernews", ["https://hn.algolia.com/api/v1/search_by_date?tags=comment&hitsPerPage=100&query="
                                + urllib.parse.quote(q) + "&numericFilters=created_at_i>{since}" for q in _HN_Q], as_json(from_hn)))
 # Weitere Karriereseiten-Systeme: standardmässig leer, per Umgebungsvariable (kommagetrennt) aktivieren
@@ -471,11 +518,15 @@ for _name, _env, _fmt, _fn in [
 ]:
     if _slugs(_env):
         SOURCES.append((_name, [_fmt.format(x) for x in _slugs(_env)], _fn))
+if os.environ.get("JOOBLE_KEY"):
+    SOURCES.append(("jooble.org", [(f"https://jooble.org/api/{os.environ['JOOBLE_KEY']}", json.dumps({"keywords": q, "location": "Switzerland"}))
+                                   for q in ("devops", "linux", "system engineer", "security engineer", "cloud engineer", "platform engineer",
+                                             "infrastructure engineer", "machine learning engineer")], as_json(from_jooble, True)))
 if os.environ.get("ADZUNA_APP_ID") and os.environ.get("ADZUNA_APP_KEY"):
     _q = urllib.parse.urlencode({"app_id": os.environ["ADZUNA_APP_ID"], "app_key": os.environ["ADZUNA_APP_KEY"],
                                  "results_per_page": 50, "max_days_old": MAX_AGE_DAYS})
     SOURCES.append(("adzuna.com", [f"https://api.adzuna.com/v1/api/jobs/ch/search/1?{_q}&what={urllib.parse.quote(w)}"
-                                   for w in ("devops", "linux", "platform engineer", "system engineer", "site reliability")],
+                                   for w in ("devops", "linux", "platform engineer", "system engineer", "site reliability", "security engineer", "cloud engineer", "machine learning engineer")],
                     as_json(from_adzuna)))
 
 
@@ -485,12 +536,13 @@ def fetch_all():
     for name, urls, fn in SOURCES:
         n, errs = 0, []
         for u in urls:
+            u, body = u if isinstance(u, tuple) else (u, None)
             try:
-                for job in fn(get_text(u.replace("{since}", str(int(time.time()) - 35 * 86400))), u):
+                for job in fn(get_text(u.replace("{since}", str(int(time.time()) - 35 * 86400)), body=body), u):
                     jobs.setdefault(job["id"], job); n += 1
             except Exception as e:  # noqa: BLE001
                 errs.append(f"{type(e).__name__}: {e}")
-                print(f"[{name}] {u} -> {errs[-1]}", file=sys.stderr)
+                print(f"[{name}] {u.split('?')[0]} -> {errs[-1]}", file=sys.stderr)
         rep = {"jobs": n}
         if errs:  # "error" = alle Abrufe fehlgeschlagen, "warn" = nur einzelne (z.B. unbekannte Firmen-Slugs)
             rep["error" if len(errs) == len(urls) else "warn"] = f"{len(errs)}/{len(urls)} fehlgeschlagen, zuletzt: {errs[-1]}"
@@ -576,6 +628,19 @@ def selftest():
                        "https://pe.jobs.personio.de/xml")
     assert [j["city"] for j in ash + wk + rc + sr + pe] == ["Zürich", "Basel", "Bern", "Genf", "Luzern"], (ash, wk, rc, sr, pe)
     assert sr[0]["url"] == "https://jobs.smartrecruiters.com/Acme/9" and pe[0]["url"].endswith("/job/5"), (sr, pe)
+    wp = from_wpjobs("<rss xmlns:job_listing='https://wpjobmanager.com'><channel><item><title>Cloud Security Engineer</title>"
+                     "<link>https://euremotejobs.com/job/1</link><pubDate>Mon, 20 Oct 2026 10:00:00 +0000</pubDate>"
+                     "<job_listing:location>Europe</job_listing:location><job_listing:company>EU Co</job_listing:company></item></channel></rss>",
+                     "https://euremotejobs.com/?feed=job_feed")
+    jb = from_jooble({"jobs": [{"title": "Linux Administrator", "location": "Winterthur", "company": "Jo", "link": "https://jooble/1",
+                                "updated": now, "salary": "100k"}]}, "https://jooble.org/api/KEY")
+    assert wp[0]["category" if False else "cat"] == "Security" and wp[0]["company"] == "EU Co" and wp[0]["country"] == "EU", wp
+    assert jb[0]["city"] == "Winterthur" and jb[0]["cat"] == "Linux", jb
+    for t, c in [("Cyber Security Analyst", "Security"), ("Machine Learning Engineer", "AI"), ("Cloud Engineer (AWS)", "Cloud"),
+                 ("Senior Infrastructure Engineer", "Plattform"), ("Linux Administrator", "Linux"), ("DevSecOps Engineer", "Security")]:
+        assert classify(t)[0] == c and RELEVANT.search(t), (t, classify(t))
+    for t in ("Security Guard", "Cloud Sales Manager", "Frontend Engineer", "Marketing AI Specialist"):
+        assert not RELEVANT.search(t) or NOT_RELEVANT.search(t), t
     for txt, code in [("", "WW"), ("Worldwide", "WW"), ("USA Only", "US"), ("Canada", "CA"), ("Brazil, Argentina", "SA"),
                       ("Asia", "AS"), ("Europe, USA", "EU"), ("Switzerland", "CH"), ("Remote - India", "IN"), ("Australia", "OC")]:
         assert region_of(txt) == code, (txt, region_of(txt))

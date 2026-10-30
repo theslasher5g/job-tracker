@@ -1,7 +1,7 @@
 const STATUS = { "": "Neu", saved: "Gemerkt", applied: "Beworben", interview: "Interview", offer: "Angebot", rejected: "Absage" };
 const EUROPE = new Set(["CH", "DE", "AT", "EU", "GB", "NL", "IE", "PT", "ES", "FR", "PL", "CZ", "SE", "DK"]);
-const CATS = ["DevOps", "Linux", "Plattform", "SysEng"];
-const CAT_LABEL = { DevOps: "DevOps", Linux: "Linux", Plattform: "Plattform", SysEng: "System Engineer" };
+const CATS = ["DevOps", "Linux", "Plattform", "SysEng", "Cloud", "Security", "AI"];
+const CAT_LABEL = { DevOps: "DevOps", Linux: "Linux", Plattform: "Plattform / Infra", SysEng: "System Engineer", Cloud: "Cloud", Security: "Security / Cyber", AI: "AI / ML" };
 const MODE_LABEL = { onsite: "Vor Ort", hybrid: "Hybrid", remote: "Remote" };
 
 let jobs = [], meta = {};
@@ -92,7 +92,7 @@ function drawCharts() {
   const catData = {
     labels: CATS.map(c => CAT_LABEL[c]),
     datasets: [{ data: CATS.map(c => catCounts[c]), borderColor: css("--card"), borderWidth: 2,
-      backgroundColor: [css("--c1"), css("--c2"), css("--c3"), css("--c4")] }]
+      backgroundColor: ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6", "--c7"].map(css) }]
   };
   if (chCat) { chCat.data = catData; chCat.update(); } else {
     chCat = new Chart($("chCat"), { type: "doughnut", data: catData, options: {
